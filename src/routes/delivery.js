@@ -86,12 +86,12 @@ router.get('/pipeline', async (_req, res) => {
   try {
     const { rows } = await db.query(BASE_SELECT + `
       AND v.transaction_date = CURRENT_DATE
+      AND COALESCE(v.delivery_status, 'Pending') != 'Delivered'
       ORDER BY
         CASE COALESCE(v.delivery_status, 'Pending')
-          WHEN 'Pending'   THEN 0
-          WHEN 'Packed'    THEN 1
-          WHEN 'Delivered' THEN 2
-          ELSE 3
+          WHEN 'Pending' THEN 0
+          WHEN 'Packed'  THEN 1
+          ELSE 2
         END,
         v.voucher_number
     `);
