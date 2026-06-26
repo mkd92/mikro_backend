@@ -1,18 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 
-const riskRouter     = require('./routes/risk');
-const followupRouter = require('./routes/followup');
-const deliveryRouter = require('./routes/delivery');
+const customersRouter = require('./routes/customers');
+const riskRouter      = require('./routes/risk');
+const followupRouter  = require('./routes/followup');
+const deliveryRouter  = require('./routes/delivery');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/risk',     riskRouter);
-app.use('/api/followup', followupRouter);
-app.use('/api/delivery', deliveryRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/risk',      riskRouter);
+app.use('/api/followup',  followupRouter);
+app.use('/api/delivery',  deliveryRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
