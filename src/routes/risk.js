@@ -92,7 +92,7 @@ router.get('/customers', async (_req, res) => {
       risk_type:             r.risk_type,
       outstanding_amount:    parseFloat(r.outstanding_amount),
       overdue_days:          parseInt(r.overdue_days),
-      last_order_date:       r.last_order_date ? r.last_order_date.toISOString().slice(0, 10) : null,
+      last_order_date:       r.last_order_date || null,
       days_since_last_order: r.days_since_last_order != null ? parseInt(r.days_since_last_order) : null,
     })));
   } catch (err) {
