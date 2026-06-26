@@ -2,6 +2,18 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 
+// Normalize whatever the DB stores to consistent Title Case
+function normalizeStatus(raw) {
+  if (!raw) return 'Pending';
+  switch (raw.trim().toLowerCase()) {
+    case 'pending':   return 'Pending';
+    case 'packed':    return 'Packed';
+    case 'shipped':   return 'Shipped';
+    case 'delivered': return 'Delivered';
+    default:          return raw;
+  }
+}
+
 const SELECT = `
   SELECT
     v.id,
@@ -38,22 +50,15 @@ const SELECT = `
     AND vt.code           = 'SINV'
     AND v.is_cancelled    = false
     AND v.site_id         IN (1, 4)
-    AND (
-      v.transaction_date = CURRENT_DATE
-      OR (
-        v.transaction_date >= CURRENT_DATE - 30
-        AND v.transaction_date <  CURRENT_DATE
-        AND COALESCE(v.delivery_status, 'Pending') != 'Delivered'
-      )
-    )
+    AND v.transaction_date >= CURRENT_DATE - 30
+    AND LOWER(COALESCE(v.delivery_status, 'Pending')) != 'delivered'
   ORDER BY
     v.transaction_date DESC,
-    CASE COALESCE(v.delivery_status, 'Pending')
-      WHEN 'Pending'   THEN 0
-      WHEN 'Packed'    THEN 1
-      WHEN 'Shipped'   THEN 2
-      WHEN 'Delivered' THEN 3
-      ELSE 4
+    CASE LOWER(COALESCE(v.delivery_status, 'Pending'))
+      WHEN 'pending'   THEN 0
+      WHEN 'packed'    THEN 1
+      WHEN 'shipped'   THEN 2
+      ELSE 3
     END,
     v.voucher_number
 `;
@@ -67,25 +72,34 @@ function mapRow(r) {
     ? r.created_at.toISOString()
     : r.created_at;
 
-  const packed    = history.find(e => e.to_status === 'Packed');
-  const shipped   = history.find(e => e.to_status === 'Shipped');
-  const delivered = history.find(e => e.to_status === 'Delivered');
+  // Case-insensitive history lookups — DB may store mixed case
+  const packed    = history.find(e => normalizeStatus(e.to_status) === 'Packed');
+  const shipped   = history.find(e => normalizeStatus(e.to_status) === 'Shipped');
+  const delivered = history.find(e => normalizeStatus(e.to_status) === 'Delivered');
   const last      = history.length > 0 ? history[history.length - 1] : null;
+
+  // Derive authoritative current status from history events first, then fall back
+  // to the vouchers column. This handles cases where vouchers.delivery_status
+  // is stale or stores a different casing than the history table.
+  const effectiveStatus = delivered ? 'Delivered'
+    : shipped               ? 'Shipped'
+    : packed                ? 'Packed'
+    : normalizeStatus(r.delivery_status);
 
   return {
     id:                       parseInt(r.id),
     voucher_number:           r.voucher_number,
     total_amount:             parseFloat(r.total_amount),
-    delivery_status:          r.delivery_status,
+    delivery_status:          effectiveStatus,
     party_name:               r.party_name,
     site_id:                  parseInt(r.site_id),
     site_name:                r.site_name,
     transaction_date:         r.transaction_date,
     is_today:                 r.is_today,
-    pending_to_packed_min:    packed                   ? msMin(createdAt,              packed.changed_at)    : null,
-    packed_to_shipped_min:    packed && shipped        ? msMin(packed.changed_at,      shipped.changed_at)   : null,
-    shipped_to_delivered_min: shipped && delivered     ? msMin(shipped.changed_at,     delivered.changed_at) : null,
-    total_delivery_minutes:   delivered                ? msMin(createdAt,              delivered.changed_at) : null,
+    pending_to_packed_min:    packed                   ? msMin(createdAt,          packed.changed_at)    : null,
+    packed_to_shipped_min:    packed && shipped        ? msMin(packed.changed_at,  shipped.changed_at)   : null,
+    shipped_to_delivered_min: shipped && delivered     ? msMin(shipped.changed_at, delivered.changed_at) : null,
+    total_delivery_minutes:   delivered                ? msMin(createdAt,          delivered.changed_at) : null,
     delivered_by:             delivered ? delivered.changed_by : null,
     current_status_since:     last ? last.changed_at : createdAt,
   };
