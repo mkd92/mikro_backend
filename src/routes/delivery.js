@@ -88,9 +88,9 @@ router.get('/pipeline', async (_req, res) => {
       AND v.transaction_date = CURRENT_DATE
       ORDER BY
         CASE COALESCE(v.delivery_status, 'Pending')
-          WHEN 'Pending'          THEN 0
-          WHEN 'Out for Delivery' THEN 1
-          WHEN 'Delivered'        THEN 2
+          WHEN 'Pending'   THEN 0
+          WHEN 'Packed'    THEN 1
+          WHEN 'Delivered' THEN 2
           ELSE 3
         END,
         v.voucher_number
