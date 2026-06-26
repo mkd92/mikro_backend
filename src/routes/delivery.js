@@ -62,6 +62,7 @@ router.get('/pipeline', async (_req, res) => {
 router.get('/orders', async (_req, res) => {
   try {
     const { rows } = await db.query(BASE_SELECT + `
+      AND v.transaction_date >= CURRENT_DATE - 30
       AND v.transaction_date < CURRENT_DATE
       AND COALESCE(v.delivery_status, 'Pending') != 'Delivered'
       ORDER BY v.transaction_date ASC, v.voucher_number
