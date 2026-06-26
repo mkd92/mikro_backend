@@ -59,10 +59,13 @@ router.get('/customers', async (_req, res) => {
         COALESCE(o.outstanding_amount, 0)              AS outstanding_amount,
         COALESCE(o.overdue_days, 0)                    AS overdue_days,
         g.last_order_date,
-        g.days_since_last_order
+        g.days_since_last_order,
+        p.responsible_party_id,
+        rp.name AS responsible_party_name
       FROM overdue o
       FULL JOIN ghost g ON g.party_id = o.party_id
       JOIN parties p ON p.id = COALESCE(o.party_id, g.party_id)
+      LEFT JOIN parties rp ON rp.id = p.responsible_party_id
       JOIN LATERAL (
         SELECT lv.site_id
         FROM vouchers lv
@@ -93,7 +96,9 @@ router.get('/customers', async (_req, res) => {
       outstanding_amount:    parseFloat(r.outstanding_amount),
       overdue_days:          parseInt(r.overdue_days),
       last_order_date:       r.last_order_date || null,
-      days_since_last_order: r.days_since_last_order != null ? parseInt(r.days_since_last_order) : null,
+      days_since_last_order:    r.days_since_last_order != null ? parseInt(r.days_since_last_order) : null,
+      responsible_party_id:     r.responsible_party_id ? parseInt(r.responsible_party_id) : null,
+      responsible_party_name:   r.responsible_party_name || null,
     })));
   } catch (err) {
     console.error('risk/customers error:', err);
