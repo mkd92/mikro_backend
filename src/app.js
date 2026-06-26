@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 
+const salesRouter     = require('./routes/sales');
 const customersRouter = require('./routes/customers');
 const riskRouter      = require('./routes/risk');
 const followupRouter  = require('./routes/followup');
@@ -11,6 +12,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use('/api/sales',     salesRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/risk',      riskRouter);
 app.use('/api/followup',  followupRouter);
