@@ -9,9 +9,9 @@ router.get('/ar-aging', async (_req, res) => {
     const { rows } = await db.query(`
       SELECT
         CASE
-          WHEN CURRENT_DATE - v.due_date <= 30 THEN '0-30'
-          WHEN CURRENT_DATE - v.due_date <= 60 THEN '31-60'
-          WHEN CURRENT_DATE - v.due_date <= 90 THEN '61-90'
+          WHEN CURRENT_DATE - v.transaction_date <= 30 THEN '0-30'
+          WHEN CURRENT_DATE - v.transaction_date <= 60 THEN '31-60'
+          WHEN CURRENT_DATE - v.transaction_date <= 90 THEN '61-90'
           ELSE '90+'
         END AS age_bucket,
         COUNT(*)::int AS invoice_count,
@@ -24,9 +24,8 @@ router.get('/ar-aging', async (_req, res) => {
         AND v.site_id IN (1, 4)
         AND v.payment_status IN ('Unpaid', 'Partially Paid')
         AND v.amount_due > 0
-        AND v.due_date IS NOT NULL
       GROUP BY age_bucket
-      ORDER BY MIN(CURRENT_DATE - v.due_date) ASC
+      ORDER BY MIN(CURRENT_DATE - v.transaction_date) ASC
     `);
     res.json(rows.map(r => ({
       age_bucket:    r.age_bucket,
