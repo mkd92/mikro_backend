@@ -45,11 +45,13 @@ const SELECT = `
        JOIN users u ON u.id = dsh.changed_by
        WHERE dc.related_invoice_voucher_id = v.id
          AND LOWER(dsh.new_status) IN ('delivered', 'fully_delivered', 'partially_delivered')
-       ORDER BY dsh.changed_at LIMIT 1) AS delivered_by
+       ORDER BY dsh.changed_at LIMIT 1) AS delivered_by,
+    sp.name AS salesperson_name
   FROM vouchers v
   JOIN voucher_types vt ON vt.id = v.voucher_type_id
   JOIN parties p         ON p.id  = v.party_id
   JOIN sites s           ON s.id  = v.site_id
+  LEFT JOIN parties sp   ON sp.id = p.responsible_party_id
   WHERE v.organization_id = 2
     AND vt.code           = 'SINV'
     AND v.is_cancelled    = false
@@ -107,7 +109,9 @@ function mapRow(r) {
     packed_to_shipped_min:    msMin(packedAt,  shippedAt),
     shipped_to_delivered_min: msMin(shippedAt, deliveredAt),
     total_delivery_minutes:   msMin(createdAt, deliveredAt),
-    delivered_by:             r.delivered_by ?? null,
+    delivered_by:             r.delivered_by      ?? null,
+    salesperson_name:         r.salesperson_name  ?? null,
+    created_at:               createdAt,
     current_status_since:     currentStatusSince,
   };
 }
