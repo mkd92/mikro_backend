@@ -70,6 +70,7 @@ const SELECT = `
     AND vt.code           = 'SINV'
     AND v.is_cancelled    = false
     AND v.site_id         IN (1, 4)
+    AND p.party_group_id  != 2
     AND v.transaction_date >= CURRENT_DATE - 30
     AND (
       LOWER(COALESCE(v.delivery_status, '')) NOT IN ('delivered', 'fully_delivered', 'partially_delivered')
