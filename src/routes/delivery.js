@@ -46,6 +46,20 @@ const SELECT = `
        WHERE dc.related_invoice_voucher_id = v.id
          AND LOWER(dsh.new_status) IN ('delivered', 'fully_delivered', 'partially_delivered')
        ORDER BY dsh.changed_at LIMIT 1) AS delivered_by,
+    COALESCE(
+      (SELECT u.full_name FROM document_status_history dsh
+         JOIN delivery_challans dc ON dc.id = dsh.document_id
+         JOIN users u ON u.id = dsh.changed_by
+         WHERE dc.related_invoice_voucher_id = v.id
+           AND LOWER(dsh.new_status) IN ('delivered', 'fully_delivered', 'partially_delivered')
+         ORDER BY dsh.changed_at LIMIT 1),
+      (SELECT u.full_name FROM document_status_history dsh
+         JOIN delivery_challans dc ON dc.id = dsh.document_id
+         JOIN users u ON u.id = dsh.changed_by
+         WHERE dc.related_invoice_voucher_id = v.id
+           AND LOWER(dsh.new_status) IN ('shipped', 'in_transit')
+         ORDER BY dsh.changed_at LIMIT 1)
+    ) AS delivery_person,
     sp.name AS salesperson_name
   FROM vouchers v
   JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -110,6 +124,7 @@ function mapRow(r) {
     shipped_to_delivered_min: msMin(shippedAt, deliveredAt),
     total_delivery_minutes:   msMin(createdAt, deliveredAt),
     delivered_by:             r.delivered_by      ?? null,
+    delivery_person:          r.delivery_person   ?? null,
     salesperson_name:         r.salesperson_name  ?? null,
     created_at:               createdAt,
     current_status_since:     currentStatusSince,
