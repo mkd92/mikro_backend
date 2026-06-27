@@ -55,15 +55,21 @@ const SELECT = `
     AND v.is_cancelled    = false
     AND v.site_id         IN (1, 4)
     AND v.transaction_date >= CURRENT_DATE - 30
-    AND LOWER(COALESCE(v.delivery_status, '')) NOT IN ('delivered', 'fully_delivered', 'partially_delivered')
+    AND (
+      LOWER(COALESCE(v.delivery_status, '')) NOT IN ('delivered', 'fully_delivered', 'partially_delivered')
+      OR v.transaction_date = CURRENT_DATE
+    )
   ORDER BY
-    v.transaction_date DESC,
     CASE LOWER(COALESCE(v.delivery_status, 'pending'))
-      WHEN 'pending'   THEN 0
-      WHEN 'packed'    THEN 1
-      WHEN 'shipped'   THEN 2
-      ELSE 3
+      WHEN 'pending'           THEN 0
+      WHEN 'packed'            THEN 1
+      WHEN 'shipped'           THEN 2
+      WHEN 'delivered'         THEN 3
+      WHEN 'fully_delivered'   THEN 3
+      WHEN 'partially_delivered' THEN 3
+      ELSE 0
     END,
+    v.transaction_date DESC,
     v.voucher_number
 `;
 
