@@ -2,7 +2,6 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 
-// Normalize whatever the DB stores to consistent Title Case
 function normalizeStatus(raw) {
   if (!raw) return 'Pending';
   switch (raw.trim().toLowerCase()) {
@@ -27,37 +26,39 @@ const SELECT = `
     v.site_id,
     s.name  AS site_name,
     v.transaction_date,
-    v.created_at,
+    v.created_at AS invoice_created_at,
     (v.transaction_date = CURRENT_DATE) AS is_today,
-    hist.status_history
+    (SELECT MIN(dsh.changed_at) FROM document_status_history dsh
+       JOIN delivery_challans dc ON dc.id = dsh.document_id
+       WHERE dc.related_invoice_voucher_id = v.id
+         AND LOWER(dsh.new_status) = 'packed') AS packed_at,
+    (SELECT MIN(dsh.changed_at) FROM document_status_history dsh
+       JOIN delivery_challans dc ON dc.id = dsh.document_id
+       WHERE dc.related_invoice_voucher_id = v.id
+         AND LOWER(dsh.new_status) IN ('shipped', 'in_transit')) AS shipped_at,
+    (SELECT MIN(dsh.changed_at) FROM document_status_history dsh
+       JOIN delivery_challans dc ON dc.id = dsh.document_id
+       WHERE dc.related_invoice_voucher_id = v.id
+         AND LOWER(dsh.new_status) IN ('delivered', 'fully_delivered', 'partially_delivered')) AS delivered_at,
+    (SELECT u.full_name FROM document_status_history dsh
+       JOIN delivery_challans dc ON dc.id = dsh.document_id
+       JOIN users u ON u.id = dsh.changed_by
+       WHERE dc.related_invoice_voucher_id = v.id
+         AND LOWER(dsh.new_status) IN ('delivered', 'fully_delivered', 'partially_delivered')
+       ORDER BY dsh.changed_at LIMIT 1) AS delivered_by
   FROM vouchers v
   JOIN voucher_types vt ON vt.id = v.voucher_type_id
   JOIN parties p         ON p.id  = v.party_id
   JOIN sites s           ON s.id  = v.site_id
-  LEFT JOIN LATERAL (
-    SELECT COALESCE(
-      json_agg(
-        json_build_object(
-          'to_status',  vsh.new_status,
-          'changed_at', vsh.changed_at,
-          'changed_by', COALESCE(u.full_name, u.username)
-        ) ORDER BY vsh.changed_at
-      ),
-      '[]'::json
-    ) AS status_history
-    FROM voucher_status_history vsh
-    LEFT JOIN users u ON u.id = vsh.changed_by
-    WHERE vsh.voucher_id = v.id
-  ) hist ON true
   WHERE v.organization_id = 2
     AND vt.code           = 'SINV'
     AND v.is_cancelled    = false
     AND v.site_id         IN (1, 4)
     AND v.transaction_date >= CURRENT_DATE - 30
-    AND LOWER(COALESCE(v.delivery_status, 'Pending')) != 'delivered'
+    AND LOWER(COALESCE(v.delivery_status, '')) NOT IN ('delivered', 'fully_delivered', 'partially_delivered')
   ORDER BY
     v.transaction_date DESC,
-    CASE LOWER(COALESCE(v.delivery_status, 'Pending'))
+    CASE LOWER(COALESCE(v.delivery_status, 'pending'))
       WHEN 'pending'   THEN 0
       WHEN 'packed'    THEN 1
       WHEN 'shipped'   THEN 2
@@ -66,45 +67,42 @@ const SELECT = `
     v.voucher_number
 `;
 
-const msMin = (a, b) =>
-  Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
+const msMin = (a, b) => {
+  if (!a || !b) return null;
+  const diff = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
+  return diff >= 0 ? diff : null;
+};
 
 function mapRow(r) {
-  const history   = r.status_history || [];
-  const createdAt = r.created_at instanceof Date
-    ? r.created_at.toISOString()
-    : r.created_at;
+  const createdAt   = r.invoice_created_at;
+  const packedAt    = r.packed_at;
+  const shippedAt   = r.shipped_at;
+  const deliveredAt = r.delivered_at;
 
-  // Case-insensitive history lookups — DB may store mixed case
-  const packed    = history.find(e => normalizeStatus(e.to_status) === 'Packed');
-  const shipped   = history.find(e => normalizeStatus(e.to_status) === 'Shipped');
-  const delivered = history.find(e => normalizeStatus(e.to_status) === 'Delivered');
-  const last      = history.length > 0 ? history[history.length - 1] : null;
+  const status = normalizeStatus(r.delivery_status);
 
-  // Derive authoritative current status from history events first, then fall back
-  // to the vouchers column. This handles cases where vouchers.delivery_status
-  // is stale or stores a different casing than the history table.
-  const effectiveStatus = delivered ? 'Delivered'
-    : shipped               ? 'Shipped'
-    : packed                ? 'Packed'
-    : normalizeStatus(r.delivery_status);
+  const currentStatusSince =
+    status === 'Delivered' ? (deliveredAt ?? shippedAt ?? packedAt ?? createdAt) :
+    status === 'Shipped'   ? (shippedAt   ?? packedAt  ?? createdAt) :
+    status === 'Packed'    ? (packedAt    ?? createdAt) :
+                             createdAt;
 
   return {
     id:                       parseInt(r.id),
     voucher_number:           r.voucher_number,
     total_amount:             parseFloat(r.total_amount),
-    delivery_status:          effectiveStatus,
+    delivery_status:          status,
     party_name:               r.party_name,
     site_id:                  parseInt(r.site_id),
     site_name:                r.site_name,
     transaction_date:         r.transaction_date,
     is_today:                 r.is_today,
-    pending_to_packed_min:    packed                   ? msMin(createdAt,          packed.changed_at)    : null,
-    packed_to_shipped_min:    packed && shipped        ? msMin(packed.changed_at,  shipped.changed_at)   : null,
-    shipped_to_delivered_min: shipped && delivered     ? msMin(shipped.changed_at, delivered.changed_at) : null,
-    total_delivery_minutes:   delivered                ? msMin(createdAt,          delivered.changed_at) : null,
-    delivered_by:             delivered ? delivered.changed_by : null,
-    current_status_since:     last ? last.changed_at : createdAt,
+    pending_to_packed_min:    msMin(createdAt, packedAt),
+    packed_to_shipped_min:    msMin(packedAt,  shippedAt),
+    shipped_to_delivered_min: msMin(shippedAt, deliveredAt),
+    total_delivery_minutes:   msMin(createdAt, deliveredAt),
+    delivered_by:             r.delivered_by ?? null,
+    current_status_since:     currentStatusSince,
   };
 }
 
