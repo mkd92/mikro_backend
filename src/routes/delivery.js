@@ -6,11 +6,14 @@ const db      = require('../db');
 function normalizeStatus(raw) {
   if (!raw) return 'Pending';
   switch (raw.trim().toLowerCase()) {
-    case 'pending':   return 'Pending';
-    case 'packed':    return 'Packed';
-    case 'shipped':   return 'Shipped';
-    case 'delivered': return 'Delivered';
-    default:          return raw;
+    case 'pending':              return 'Pending';
+    case 'packed':               return 'Packed';
+    case 'shipped':
+    case 'in_transit':           return 'Shipped';
+    case 'delivered':
+    case 'fully_delivered':
+    case 'partially_delivered':  return 'Delivered';
+    default:                     return raw;
   }
 }
 
