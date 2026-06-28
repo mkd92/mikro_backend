@@ -28,6 +28,7 @@ router.get('/customers', async (_req, res) => {
         AND v.is_cancelled    = false
         AND v.site_id         IN (1, 4)
         AND p.name            NOT ILIKE '%emp%'
+        AND p.party_group_id  != 2
       GROUP BY p.id, p.name, s.name, rp.name
       HAVING SUM(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
                       THEN v.amount_due ELSE 0 END) > 0
