@@ -29,8 +29,7 @@ router.get('/customers', async (_req, res) => {
         AND v.site_id         IN (1, 4)
         AND p.name            NOT ILIKE '%emp%'
       GROUP BY p.id, p.name, s.name, rp.name
-      HAVING MAX(v.transaction_date) < CURRENT_DATE - INTERVAL '30 days'
-         AND SUM(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
+      HAVING SUM(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
                       THEN v.amount_due ELSE 0 END) > 0
       ORDER BY total_outstanding DESC
     `);
