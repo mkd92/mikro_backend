@@ -1,107 +1,89 @@
-const express = require('express');
-const router  = express.Router();
-const pool    = require('../db');
+const express    = require('express');
+const router     = express.Router();
+const { query }  = require('../db');
 
 router.get('/customers', async (_req, res) => {
   try {
-    const { rows } = await pool.query(`
-      WITH overdue AS (
-        SELECT
-          v.party_id,
-          SUM(v.amount_due)::numeric                  AS outstanding_amount,
-          MAX(CURRENT_DATE - v.transaction_date)::int AS overdue_days
-        FROM vouchers v
-        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-        WHERE v.organization_id = 2
-          AND vt.code = 'SINV'
-          AND v.is_cancelled = false
-          AND v.site_id IN (1, 4)
-          AND v.payment_status IN ('Unpaid', 'Partially Paid')
-          AND v.amount_due > 0
-          AND v.transaction_date < CURRENT_DATE - 30
-        GROUP BY v.party_id
-      ),
-      ghost AS (
-        SELECT
-          v2.party_id,
-          MAX(v2.transaction_date)                         AS last_order_date,
-          MAX(CURRENT_DATE - v2.transaction_date)::int     AS days_since_last_order
-        FROM vouchers v2
-        JOIN voucher_types vt2 ON vt2.id = v2.voucher_type_id
-        WHERE v2.organization_id = 2
-          AND vt2.code = 'SINV'
-          AND v2.is_cancelled = false
-          AND v2.site_id IN (1, 4)
-          AND v2.transaction_date >= CURRENT_DATE - 90
-          AND v2.transaction_date <  CURRENT_DATE - 30
-          AND v2.party_id NOT IN (
-            SELECT DISTINCT v3.party_id
-            FROM vouchers v3
-            JOIN voucher_types vt3 ON vt3.id = v3.voucher_type_id
-            WHERE v3.organization_id = 2
-              AND vt3.code = 'SINV'
-              AND v3.is_cancelled = false
-              AND v3.site_id IN (1, 4)
-              AND v3.transaction_date >= CURRENT_DATE - 30
-          )
-        GROUP BY v2.party_id
-      )
+    const { rows } = await query(`
       SELECT
-        COALESCE(o.party_id, g.party_id)              AS party_id,
-        p.name                                          AS party_name,
-        v_last.site_id,
-        s.name                                          AS site_name,
-        CASE
-          WHEN o.party_id IS NOT NULL AND g.party_id IS NOT NULL THEN 'both'
-          WHEN o.party_id IS NOT NULL                            THEN 'overdue_ar'
-          ELSE                                                        'ghost'
-        END                                             AS risk_type,
-        COALESCE(o.outstanding_amount, 0)              AS outstanding_amount,
-        COALESCE(o.overdue_days, 0)                    AS overdue_days,
-        g.last_order_date,
-        g.days_since_last_order,
-        p.responsible_party_id,
-        rp.name AS responsible_party_name
-      FROM overdue o
-      FULL JOIN ghost g ON g.party_id = o.party_id
-      JOIN parties p ON p.id = COALESCE(o.party_id, g.party_id)
-      LEFT JOIN parties rp ON rp.id = p.responsible_party_id
-      JOIN LATERAL (
-        SELECT lv.site_id
-        FROM vouchers lv
-        JOIN voucher_types lvt ON lvt.id = lv.voucher_type_id
-        WHERE lv.party_id = COALESCE(o.party_id, g.party_id)
-          AND lv.organization_id = 2
-          AND lvt.code = 'SINV'
-          AND lv.is_cancelled = false
-        ORDER BY lv.transaction_date DESC
-        LIMIT 1
-      ) v_last ON true
-      JOIN sites s ON s.id = v_last.site_id
-      ORDER BY
-        CASE
-          WHEN o.party_id IS NOT NULL AND g.party_id IS NOT NULL THEN 0
-          WHEN o.party_id IS NOT NULL                            THEN 1
-          ELSE 2
-        END,
-        COALESCE(o.outstanding_amount, 0) DESC
+        p.id                                                           AS party_id,
+        p.name                                                         AS customer_name,
+        s.name                                                         AS branch,
+        rp.name                                                        AS sales_rep,
+        MAX(v.transaction_date)                                        AS last_purchase_date,
+        (CURRENT_DATE - MAX(v.transaction_date))::int                  AS days_inactive,
+        COUNT(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
+                   THEN 1 END)::int                                    AS open_invoice_count,
+        SUM(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
+                 THEN v.amount_due ELSE 0 END)::numeric                AS total_outstanding,
+        MIN(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
+                 THEN v.transaction_date END)                          AS oldest_due_date
+      FROM vouchers v
+      JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      JOIN parties p        ON p.id  = v.party_id
+      JOIN sites s          ON s.id  = v.site_id
+      LEFT JOIN parties rp  ON rp.id = p.responsible_party_id
+      WHERE v.organization_id = 2
+        AND vt.code           = 'SINV'
+        AND v.is_cancelled    = false
+        AND v.site_id         IN (1, 4)
+        AND p.name            NOT ILIKE '%emp%'
+      GROUP BY p.id, p.name, s.name, rp.name
+      HAVING MAX(v.transaction_date) < CURRENT_DATE - INTERVAL '30 days'
+         AND SUM(CASE WHEN v.payment_status IN ('Unpaid','Partially Paid')
+                      THEN v.amount_due ELSE 0 END) > 0
+      ORDER BY total_outstanding DESC
     `);
 
     res.json(rows.map(r => ({
-      party_id:              parseInt(r.party_id),
-      party_name:            r.party_name,
-      site_id:               parseInt(r.site_id),
-      site_name:             r.site_name,
-      risk_type:             r.risk_type,
-      outstanding_amount:    parseFloat(r.outstanding_amount),
-      overdue_days:          parseInt(r.overdue_days),
-      last_order_date:       r.last_order_date || null,
-      days_since_last_order:    r.days_since_last_order != null ? parseInt(r.days_since_last_order) : null,
-      responsible_party_id:     r.responsible_party_id ? parseInt(r.responsible_party_id) : null,
-      responsible_party_name:   r.responsible_party_name || null,
+      party_id:           parseInt(r.party_id),
+      customer_name:      r.customer_name,
+      branch:             r.branch,
+      sales_rep:          r.sales_rep || null,
+      last_purchase_date: r.last_purchase_date || null,
+      days_inactive:      parseInt(r.days_inactive),
+      open_invoice_count: parseInt(r.open_invoice_count),
+      total_outstanding:  parseFloat(r.total_outstanding),
+      oldest_due_date:    r.oldest_due_date || null,
     })));
   } catch (err) {
     console.error('risk/customers error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/invoices', async (req, res) => {
+  const partyId = parseInt(req.query.party_id);
+  if (!partyId) return res.status(400).json({ error: 'party_id is required' });
+
+  try {
+    const { rows } = await query(`
+      SELECT
+        v.voucher_number,
+        v.transaction_date,
+        v.total_amount,
+        v.amount_due,
+        v.payment_status
+      FROM vouchers v
+      JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      WHERE v.organization_id = 2
+        AND vt.code           = 'SINV'
+        AND v.is_cancelled    = false
+        AND v.party_id        = $1
+        AND v.payment_status  IN ('Unpaid', 'Partially Paid')
+        AND v.amount_due      > 0
+      ORDER BY v.transaction_date ASC
+    `, [partyId]);
+
+    res.json(rows.map(r => ({
+      voucher_number:   r.voucher_number,
+      transaction_date: r.transaction_date,
+      total_amount:     parseFloat(r.total_amount),
+      amount_due:       parseFloat(r.amount_due),
+      payment_status:   r.payment_status,
+    })));
+  } catch (err) {
+    console.error('risk/invoices error:', err);
     res.status(500).json({ error: err.message });
   }
 });
