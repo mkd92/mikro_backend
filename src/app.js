@@ -7,6 +7,7 @@ const riskRouter      = require('./routes/risk');
 const followupRouter  = require('./routes/followup');
 const deliveryRouter     = require('./routes/delivery');
 const dailyReportRouter  = require('./routes/daily-report');
+const locationsRouter    = require('./routes/locations');
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use('/api/risk',      riskRouter);
 app.use('/api/followup',  followupRouter);
 app.use('/api/delivery',     deliveryRouter);
 app.use('/api/daily-report', dailyReportRouter);
+app.use('/api/locations',   locationsRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
