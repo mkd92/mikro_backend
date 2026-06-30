@@ -61,6 +61,7 @@ router.get('/customers', async (_req, res) => {
              THEN (last_purchase_date + ROUND(avg_cycle_days)::int - CURRENT_DATE)::int
         END                                                                     AS days_until_order
       FROM customer_stats
+      WHERE last_purchase_date >= CURRENT_DATE - INTERVAL '30 days'
       ORDER BY
         days_until_order ASC NULLS LAST,
         last_purchase_date ASC NULLS LAST
